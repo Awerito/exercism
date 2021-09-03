@@ -1,71 +1,62 @@
 import re
 
+# Some more RegEx for future improvement
+# '~~(.*?)~~'                              # s
+# '^((?:[ ]{1,}|\t{1,})?-) (?!\[.\])(.*)'  # tab list
+# '(?<!\()https?:\/\/[a-zA-Z0-9$-_@.&+]+'  # a
+# '[^!]\[(.*?)\]\((.*?)\)'                 # a
+# '!\[(.*?)\]\((.*?)\)'                    # img
+# '^((?:> .*[\n]?)+)'                      # blockquote
+# '^((?:(?:[ ]{4}|\t).*[\n]?)+)'           # codeblock by tabs
+# '(```[^`\n][^```]*```)'                  # codeblock by ``` without syntax selector
+# '(^```[^```]*\n```)'                     # codeblock by ``` with syntax selector
+# '(`[^`]*`)'                              # inline code
+
 
 def parse(markdown):
-    lines = markdown.split('\n')
-    res = ''
-    in_list = False
-    in_list_append = False
-    for i in lines:
-        if re.match('###### (.*)', i) is not None:
-            i = '<h6>' + i[7:] + '</h6>'
-        elif re.match('## (.*)', i) is not None:
-            i = '<h2>' + i[3:] + '</h2>'
-        elif re.match('# (.*)', i) is not None:
-            i = '<h1>' + i[2:] + '</h1>'
-        m = re.match(r'\* (.*)', i)
-        if m:
-            if not in_list:
-                in_list = True
-                is_bold = False
-                is_italic = False
-                curr = m.group(1)
-                m1 = re.match('(.*)__(.*)__(.*)', curr)
-                if m1:
-                    curr = m1.group(1) + '<strong>' + \
-                        m1.group(2) + '</strong>' + m1.group(3)
-                    is_bold = True
-                m1 = re.match('(.*)_(.*)_(.*)', curr)
-                if m1:
-                    curr = m1.group(1) + '<em>' + m1.group(2) + \
-                        '</em>' + m1.group(3)
-                    is_italic = True
-                i = '<ul><li>' + curr + '</li>'
-            else:
-                is_bold = False
-                is_italic = False
-                curr = m.group(1)
-                m1 = re.match('(.*)__(.*)__(.*)', curr)
-                if m1:
-                    is_bold = True
-                m1 = re.match('(.*)_(.*)_(.*)', curr)
-                if m1:
-                    is_italic = True
-                if is_bold:
-                    curr = m1.group(1) + '<strong>' + \
-                        m1.group(2) + '</strong>' + m1.group(3)
-                if is_italic:
-                    curr = m1.group(1) + '<em>' + m1.group(2) + \
-                        '</em>' + m1.group(3)
-                i = '<li>' + curr + '</li>'
-        else:
-            if in_list:
-                in_list_append = True
-                in_list = False
+    # <h{n}>{text}</h{n}>
+    parsed_html = re.sub(
+        r"^(#{1,6}) (\S.*)",
+        lambda x: f"<h{len(x.group(1))}>{x.group(2)}</h{len(x.group(1))}>",
+        markdown,
+        flags=re.M,
+    )
+    # <li>{text}</li>
+    parsed_html = re.sub(
+        r"^((?:[ ]{1,}|\t{1,})?[-*]) (?!\[.\])(.*)",
+        r"<li>\2</li>",
+        parsed_html,
+        flags=re.M,
+    )
+    # <strong>{text}</strong>
+    parsed_html = re.sub(r"(\*\*|__)(.*)\1", r"<strong>\2</strong>", parsed_html)
+    # <em>{text}</em>
+    parsed_html = re.sub(r"(\*|_)(.*)\1", r"<em>\2</em>", parsed_html)
 
-        m = re.match('<h|<ul|<p|<li', i)
-        if not m:
-            i = '<p>' + i + '</p>'
-        m = re.match('(.*)__(.*)__(.*)', i)
-        if m:
-            i = m.group(1) + '<strong>' + m.group(2) + '</strong>' + m.group(3)
-        m = re.match('(.*)_(.*)_(.*)', i)
-        if m:
-            i = m.group(1) + '<em>' + m.group(2) + '</em>' + m.group(3)
-        if in_list_append:
-            i = '</ul>' + i
-            in_list_append = False
-        res += i
-    if in_list:
-        res += '</ul>'
-    return res
+    # <ul> and <p> elements
+    in_ul = False
+    lines = list()
+    previous = str()
+    for line in parsed_html.split("\n"):
+        if not re.search(r"^<[^strong|em].*?>", line):
+            line = "<p>" + line + "</p>"
+
+        li = line.startswith("<li>")
+        if not in_ul and li:
+            in_ul = True
+            line = "<ul>" + line
+        elif in_ul and li:
+            previous = line
+        elif in_ul:
+            in_ul = False
+            previous = previous + "</ul>"
+            lines.pop()
+            lines.append(previous)
+        lines.append(line)
+
+    parsed_html = "\n".join(lines)
+    parsed_html = parsed_html.replace(">\n<", "><")  # I going to remove this later
+
+    if parsed_html.endswith("</li>"):
+        return parsed_html + "</ul>"
+    return parsed_html
